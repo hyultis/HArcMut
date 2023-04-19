@@ -17,11 +17,10 @@ fn threadUpdate() {
 	let testdefault = 42;
 	let ham = HArcMut::new(testdefault);
 	let mut threadJoin = Vec::new();
-	for i in 0..10
+	for _ in 0..10
 	{
 		let hamThread = ham.clone();
 		threadJoin.push(thread::spawn(move || {
-			println!("======{}", i);
 			hamThread.update(|i| {
 				*i += 1;
 			});
