@@ -7,6 +7,7 @@ I use a shared RwLock, that permit a writable ***Data*** between thread and a lo
 
 ***Data*** need to have the "Clone" trait
 
+use [Parking_lot](https://crates.io/crates/parking_lot) for RwLock and [ArcSwap](https://crates.io/crates/arc-swap) for local readonly clone
 
 ## Online Documentation
 
