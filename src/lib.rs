@@ -50,7 +50,7 @@ impl<T> HArcMut<T>
 	}
 	
 	/// update content (and readonly part by cloning, so its costly)
-	/// check updateIf if you want to update "readonly" depending from the closure
+	/// check updateIf() if you want to update "readonly" depending from the closure
 	/// note : I is simply ignored (QOL)
 	pub fn update<I>(&self, mut fnUpdate: impl FnMut(&mut T) -> I)
 	{
@@ -62,7 +62,7 @@ impl<T> HArcMut<T>
 		self._localData.swap(Arc::new(tmp.clone()));
 	}
 	
-	/// like update,
+	/// like update(),
 	/// but closure must return true if something changed (to update the readonly part), or false
 	pub fn updateIf(&self, mut fnUpdate: impl FnMut(&mut T) -> bool)
 	{
@@ -90,11 +90,11 @@ impl<T> Clone for HArcMut<T>
 	}
 }
 
+/// this need to be faster (if possible) and monotonic, for futur update
 fn getTime() -> u128
 {
 	return SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
 }
-
 
 #[cfg(test)]
 mod tests {
