@@ -15,7 +15,7 @@ use [Parking_lot](https://crates.io/crates/parking_lot) for RwLock and [ArcSwap]
 
 ## Example
 
-You can check the test as example, here : https://github.com/hyultis/HArcMut/blob/master/src/lib.rs#L99
+You can check the test as example, here : https://github.com/hyultis/HArcMut/blob/master/tests/tests.rs
 
 ## License
 
