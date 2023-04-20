@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+
 use std::thread;
 use HArcMut::HArcMut;
 
@@ -6,9 +7,18 @@ use HArcMut::HArcMut;
 fn update() {
 	let testdefault = 42;
 	let ham = HArcMut::new(testdefault);
-	ham.update(|i| {
-		*i = 43;
-	});
+	{
+		// this is a RAII guard, the drop is needed for repercuting value into readonly part
+		let mut value = ham.get_mut();
+		*value = 43;
+		
+		// if you want to not deal with the drop, can use update() instead :
+		// ```
+		// ham.update(|value|{
+		// 	*value = 43;
+		// });
+		// ```
+	}
 	assert_eq!(*ham.get(), 43);
 }
 
@@ -21,9 +31,8 @@ fn threadUpdate() {
 	{
 		let hamThread = ham.clone();
 		threadJoin.push(thread::spawn(move || {
-			hamThread.update(|i| {
-				*i += 1;
-			});
+			let mut value = hamThread.get_mut();
+			*value += 1;
 		}));
 	}
 	

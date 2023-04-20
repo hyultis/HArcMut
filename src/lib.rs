@@ -1,21 +1,21 @@
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
 
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use arc_swap::ArcSwap;
-use parking_lot::RwLock;
+use parking_lot::{RawRwLock, RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use parking_lot::lock_api::RwLockReadGuard;
 
 /// HArcMut : Hyultis Arc Mut
 /// store a content inside a Arc<RwLock<>> to be a mutable between thread
 /// use a cloned "local" version of the content, for faster/simpler access
 pub struct HArcMut<T>
-	where T: ?Sized + Clone
 {
 	_sharedData: Arc<RwLock<T>>,
 	_sharedLastUpdate: Arc<RwLock<u128>>,
 	_localLastUpdate: RwLock<u128>,
-	_localData: ArcSwap<T>
+	_localData: RwLock<T>,
 }
 
 impl<T> HArcMut<T>
@@ -29,29 +29,35 @@ impl<T> HArcMut<T>
 			_sharedData: Arc::new(RwLock::new(data.clone())),
 			_sharedLastUpdate: Arc::new(RwLock::new(time)),
 			_localLastUpdate: RwLock::new(time),
-			_localData: ArcSwap::new(Arc::new(data)),
+			_localData: RwLock::new(data),
 		};
 	}
 	
-	pub fn get(&self) -> Arc<T>
+	/// get readonly content
+	pub fn get(&self) -> RwLockReadGuard<'_, RawRwLock, T>
 	{
 		let otherTime = *self._sharedLastUpdate.read();
-		let returning ;
-		if({*self._localLastUpdate.read()} < otherTime)
+		if ( {*self._localLastUpdate.read()} < otherTime)
 		{
 			*self._localLastUpdate.write() = otherTime;
-			returning = Arc::new(self._sharedData.write().clone());
-			self._localData.swap(returning.clone());
+			*self._localData.write() = self._sharedData.write().clone();
 		}
-		else
-		{
-			returning = self._localData.load().clone();
-		}
-		return returning;
+		return self._localData.read();
 	}
 	
-	/// update content (and readonly part by cloning, so its costly)
-	/// check updateIf() if you want to update "readonly" depending from the closure
+	/// update content via a guard
+	/// and readonly part by cloning on drop (beware, the drop is important to get updated data on get)
+	pub fn get_mut(&self) -> Guard<'_, T>
+	{
+		//let tmp = self._sharedData.write();
+		Guard{
+			context: self,
+			guarded: self._sharedData.write()
+		}
+	}
+	
+	/// update content (and readonly part by cloning)
+	/// this is a bit slower than get_mut, but dont need a drop.
 	/// note : I is simply ignored (QOL)
 	pub fn update<I>(&self, mut fnUpdate: impl FnMut(&mut T) -> I)
 	{
@@ -60,21 +66,17 @@ impl<T> HArcMut<T>
 		fnUpdate(tmp);
 		*self._sharedLastUpdate.write() = timetmp;
 		*self._localLastUpdate.write() = timetmp;
-		self._localData.swap(Arc::new(tmp.clone()));
+		*self._localData.write() = tmp.clone();
 	}
 	
-	/// like update(),
-	/// but closure must return true if something changed (to update the readonly part), or false
-	pub fn updateIf(&self, mut fnUpdate: impl FnMut(&mut T) -> bool)
+	//////////////////// PRIVATE /////////////////
+	
+	fn update_internal(&self, tmp : &T)
 	{
-		let tmp = &mut self._sharedData.write();
-		if(fnUpdate(tmp))
-		{
-			let timetmp = getTime();
-			*self._sharedLastUpdate.write() = timetmp;
-			*self._localLastUpdate.write() = timetmp;
-			self._localData.swap(Arc::new(tmp.clone()));
-		}
+		let timetmp = getTime();
+		*self._sharedLastUpdate.write() = timetmp;
+		*self._localLastUpdate.write() = timetmp;
+		*self._localData.write() = tmp.clone();
 	}
 }
 
@@ -82,11 +84,11 @@ impl<T> Clone for HArcMut<T>
 	where T: Clone
 {
 	fn clone(&self) -> Self {
-		return HArcMut{
+		return HArcMut {
 			_sharedData: self._sharedData.clone(),
 			_sharedLastUpdate: self._sharedLastUpdate.clone(),
 			_localLastUpdate: RwLock::new(*self._sharedLastUpdate.read()),
-			_localData: ArcSwap::new(Arc::new(self._sharedData.read().clone()))
+			_localData: RwLock::new(self._localData.read().clone()),
 		};
 	}
 }
@@ -95,4 +97,38 @@ impl<T> Clone for HArcMut<T>
 fn getTime() -> u128
 {
 	return SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+}
+
+// RAII guard
+pub struct Guard<'a,T>
+	where T: Clone
+{
+	context: &'a HArcMut<T>,
+	guarded: RwLockWriteGuard<'a,T>
+}
+
+impl<'a,T> Deref for Guard<'a,T>
+	where T: Clone
+{
+	type Target = T;
+	
+	fn deref(&self) -> &Self::Target {
+		self.guarded.deref()
+	}
+}
+
+impl<T> DerefMut for Guard<'_,T>
+	where T: Clone
+{
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		self.guarded.deref_mut()
+	}
+}
+
+impl<T> Drop for Guard<'_,T>
+	where T: Clone
+{
+	fn drop(&mut self) {
+		self.context.update_internal(&self.guarded);
+	}
 }
