@@ -4,7 +4,7 @@
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use parking_lot::{RawRwLock, RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use parking_lot::{RawRwLock, RwLock, RwLockWriteGuard};
 use parking_lot::lock_api::RwLockReadGuard;
 
 /// HArcMut : Hyultis Arc Mut
