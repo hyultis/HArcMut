@@ -36,9 +36,30 @@ fn threadUpdate() {
 		}));
 	}
 	
+	for _ in 0..10
+	{
+		let hamThread = ham.clone();
+		threadJoin.push(thread::spawn(move || {
+			hamThread.update(|value|{
+				*value += 1;
+			});
+		}));
+	}
+	
+	for _ in 0..10
+	{
+		let hamThread = ham.clone();
+		threadJoin.push(thread::spawn(move || {
+			hamThread.updateIf(|value|{
+				*value += 1;
+				true // put in false here lead to desync, be carefull
+			});
+		}));
+	}
+	
 	for x in threadJoin {
 		x.join().expect("Thread join impossible");
 	}
 	
-	assert_eq!(*ham.get(), 52);
+	assert_eq!(*ham.get(), 72);
 }

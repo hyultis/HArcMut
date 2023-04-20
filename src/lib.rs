@@ -69,14 +69,28 @@ impl<T> HArcMut<T>
 		*self._localData.write() = tmp.clone();
 	}
 	
+	/// if the closure return "true" update readonly part by cloning the update content
+	/// *beware if you update the &mut, but returning false* : shared and local data will be desync
+	pub fn updateIf(&self, mut fnUpdate: impl FnMut(&mut T) -> bool)
+	{
+		let tmp = &mut self._sharedData.write();
+		if (fnUpdate(tmp))
+		{
+			let timetmp = getTime();
+			*self._sharedLastUpdate.write() = timetmp;
+			*self._localLastUpdate.write() = timetmp;
+			*self._localData.write() = tmp.clone();
+		}
+	}
+	
 	//////////////////// PRIVATE /////////////////
 	
-	fn update_internal(&self, tmp : &T)
+	fn update_internal(&self, tmp : T)
 	{
 		let timetmp = getTime();
 		*self._sharedLastUpdate.write() = timetmp;
 		*self._localLastUpdate.write() = timetmp;
-		*self._localData.write() = tmp.clone();
+		*self._localData.write() = tmp;
 	}
 }
 
@@ -129,6 +143,6 @@ impl<T> Drop for Guard<'_,T>
 	where T: Clone
 {
 	fn drop(&mut self) {
-		self.context.update_internal(&self.guarded);
+		self.context.update_internal(self.guarded.clone()); // no way to do it without a clone ?
 	}
 }
