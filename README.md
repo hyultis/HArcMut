@@ -1,6 +1,6 @@
 # HArcMut
 
-A library that *mimic* a mutable Arc. Because it will be never possible in pure rust.
+A library that *mimic* a mutable Arc.
 
 I use a shared RwLock, that permit a writable ***Data*** between thread and a local ReadOnly version for faster/simplest access.
 ***Data*** is synchronized on get (not on write !) to assure getting the updated version when needed.
@@ -8,6 +8,9 @@ I use a shared RwLock, that permit a writable ***Data*** between thread and a lo
 ***Data*** need to have the "Clone" trait
 
 use [Parking_lot](https://crates.io/crates/parking_lot) for RwLock stuff
+
+Beware : for a safe memory clear, you need to drop each clone, everywhere.
+To help with that, you need to check the return of "isWantDrop()", and removing the local instance from your storage (and doing that for each system that hold a clone)
 
 ## Online Documentation
 

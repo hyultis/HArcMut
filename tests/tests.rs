@@ -63,3 +63,21 @@ fn threadUpdate() {
 	
 	assert_eq!(*ham.get(), 72);
 }
+
+#[test]
+fn threadDrop() {
+	let testdefault = 42;
+	let ham = HArcMut::new(testdefault);
+	let mut storage = Vec::new();
+	storage.push(ham.clone());
+
+	thread::spawn(move || {
+		ham.setDrop();
+	}).join().expect("Thread join impossible");
+
+
+	storage.retain_mut(|item|!item.isWantDrop());
+
+	assert_eq!(storage.len(), 0);
+
+}

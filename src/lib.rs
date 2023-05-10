@@ -11,11 +11,14 @@ use parking_lot::lock_api::RwLockReadGuard;
 /// store a content inside a Arc<RwLock<>> to be a mutable between thread
 /// use a cloned "local" version of the content, for faster/simpler access
 pub struct HArcMut<T>
+	where T: Clone
 {
 	_sharedData: Arc<RwLock<T>>,
 	_sharedLastUpdate: Arc<RwLock<u128>>,
+	_sharedWantDrop: Arc<RwLock<bool>>,
 	_localLastUpdate: RwLock<u128>,
 	_localData: RwLock<T>,
+	_localWantDrop: RwLock<bool>
 }
 
 impl<T> HArcMut<T>
@@ -28,8 +31,10 @@ impl<T> HArcMut<T>
 		{
 			_sharedData: Arc::new(RwLock::new(data.clone())),
 			_sharedLastUpdate: Arc::new(RwLock::new(time)),
+			_sharedWantDrop: Arc::new(RwLock::new(false)),
 			_localLastUpdate: RwLock::new(time),
 			_localData: RwLock::new(data),
+			_localWantDrop: RwLock::new(false),
 		};
 	}
 	
@@ -41,12 +46,13 @@ impl<T> HArcMut<T>
 		{
 			*self._localLastUpdate.write() = otherTime;
 			*self._localData.write() = self._sharedData.write().clone();
+			*self._localWantDrop.write() = self._sharedWantDrop.write().clone();
 		}
 		return self._localData.read();
 	}
 	
-	/// update content via a guard
-	/// and readonly part by cloning on drop (beware, the drop is important to get updated data on get)
+	/// update local and shared content via a guard
+	/// and readonly part by cloning on drop (*beware*: dropping guard is important to get shared and local updated and sync)
 	pub fn get_mut(&self) -> Guard<'_, T>
 	{
 		//let tmp = self._sharedData.write();
@@ -56,7 +62,7 @@ impl<T> HArcMut<T>
 		}
 	}
 	
-	/// update content (and readonly part by cloning)
+	/// update local and shared content (and readonly part by cloning)
 	/// this is a bit slower than get_mut, but dont need a drop.
 	/// note : I is simply ignored (QOL)
 	pub fn update<I>(&self, mut fnUpdate: impl FnMut(&mut T) -> I)
@@ -69,7 +75,7 @@ impl<T> HArcMut<T>
 		*self._localData.write() = tmp.clone();
 	}
 	
-	/// if the closure return "true" update readonly part by cloning the update content
+	/// if closure return "true" update local part by cloning the updated shared content
 	/// *beware if you update the &mut, but returning false* : shared and local data will be desync
 	pub fn updateIf(&self, mut fnUpdate: impl FnMut(&mut T) -> bool)
 	{
@@ -81,6 +87,29 @@ impl<T> HArcMut<T>
 			*self._localLastUpdate.write() = timetmp;
 			*self._localData.write() = tmp.clone();
 		}
+	}
+
+	/// must be regulary manually checked
+	/// if true, the local storage must drop this local instance
+	pub fn isWantDrop(&self) -> bool
+	{
+		let otherTime = *self._sharedLastUpdate.read();
+		if ( {*self._localLastUpdate.read()} < otherTime)
+		{
+			*self._localLastUpdate.write() = otherTime;
+			*self._localData.write() = self._sharedData.write().clone();
+			*self._localWantDrop.write() = self._sharedWantDrop.write().clone();
+		}
+		return *self._localWantDrop.read();
+	}
+
+	/// used to set the state of shared intance to "Want drop"
+	/// and normally be used juste before dropping the local instance
+	pub fn setDrop(&self)
+	{
+		let timetmp = getTime();
+		*self._sharedLastUpdate.write() = timetmp;
+		*self._sharedWantDrop.write() = true;
 	}
 	
 	//////////////////// PRIVATE /////////////////
@@ -101,8 +130,10 @@ impl<T> Clone for HArcMut<T>
 		return HArcMut {
 			_sharedData: self._sharedData.clone(),
 			_sharedLastUpdate: self._sharedLastUpdate.clone(),
+			_sharedWantDrop: self._sharedWantDrop.clone(),
 			_localLastUpdate: RwLock::new(*self._sharedLastUpdate.read()),
 			_localData: RwLock::new(self._localData.read().clone()),
+			_localWantDrop: RwLock::new(self._sharedWantDrop.read().clone()),
 		};
 	}
 }
