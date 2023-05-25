@@ -7,6 +7,7 @@ readme = "README.md"
 repository = "https://github.com/hyultis/HArcMut"
 keywords = ["arc", "mut", "mutable"]
 categories = ["data-structures"]
+description = "mutable arc"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
