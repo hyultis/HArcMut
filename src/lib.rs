@@ -1,11 +1,13 @@
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
 
-use std::ops::{Deref, DerefMut};
+mod guard;
+
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use parking_lot::{RawRwLock, RwLock, RwLockWriteGuard};
+use parking_lot::{RawRwLock, RwLock};
 use parking_lot::lock_api::RwLockReadGuard;
+use crate::guard::Guard;
 
 /// HArcMut : Hyultis Arc Mut
 /// store a content inside a Arc<RwLock<>> to be a mutable between thread
@@ -131,9 +133,9 @@ impl<T> Clone for HArcMut<T>
 			_sharedData: self._sharedData.clone(),
 			_sharedLastUpdate: self._sharedLastUpdate.clone(),
 			_sharedWantDrop: self._sharedWantDrop.clone(),
-			_localLastUpdate: RwLock::new(*self._sharedLastUpdate.read()),
+			_localLastUpdate: RwLock::new(*self._localLastUpdate.read()),
 			_localData: RwLock::new(self._localData.read().clone()),
-			_localWantDrop: RwLock::new(self._sharedWantDrop.read().clone()),
+			_localWantDrop: RwLock::new(self._localWantDrop.read().clone()),
 		};
 	}
 }
@@ -142,38 +144,4 @@ impl<T> Clone for HArcMut<T>
 fn getTime() -> u128
 {
 	return SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-}
-
-// RAII guard
-pub struct Guard<'a,T>
-	where T: Clone
-{
-	context: &'a HArcMut<T>,
-	guarded: RwLockWriteGuard<'a,T>
-}
-
-impl<'a,T> Deref for Guard<'a,T>
-	where T: Clone
-{
-	type Target = T;
-	
-	fn deref(&self) -> &Self::Target {
-		self.guarded.deref()
-	}
-}
-
-impl<T> DerefMut for Guard<'_,T>
-	where T: Clone
-{
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.guarded.deref_mut()
-	}
-}
-
-impl<T> Drop for Guard<'_,T>
-	where T: Clone
-{
-	fn drop(&mut self) {
-		self.context.update_internal(self.guarded.clone()); // no way to do it without a clone ?
-	}
 }
