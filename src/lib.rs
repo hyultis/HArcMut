@@ -2,12 +2,13 @@
 #![allow(unused_parens)]
 
 mod guard;
+mod holder;
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use parking_lot::{RawRwLock, RwLock};
+use parking_lot::RawRwLock;
 use parking_lot::lock_api::RwLockReadGuard;
 use crate::guard::Guard;
+use crate::holder::Holder;
 
 /// HArcMut : Hyultis Arc Mut
 /// store a content inside a Arc<RwLock<>> to be a mutable between thread
@@ -15,12 +16,8 @@ use crate::guard::Guard;
 pub struct HArcMut<T>
 	where T: Clone
 {
-	_sharedData: Arc<RwLock<T>>,
-	_sharedLastUpdate: Arc<RwLock<u128>>,
-	_sharedWantDrop: Arc<RwLock<bool>>,
-	_localLastUpdate: RwLock<u128>,
-	_localData: RwLock<T>,
-	_localWantDrop: RwLock<bool>
+	_shared: Arc<Holder<T>>,
+	_local: Holder<T>,
 }
 
 impl<T> HArcMut<T>
@@ -28,39 +25,27 @@ impl<T> HArcMut<T>
 {
 	pub fn new(data: T) -> Self
 	{
-		let time = getTime();
 		return HArcMut
 		{
-			_sharedData: Arc::new(RwLock::new(data.clone())),
-			_sharedLastUpdate: Arc::new(RwLock::new(time)),
-			_sharedWantDrop: Arc::new(RwLock::new(false)),
-			_localLastUpdate: RwLock::new(time),
-			_localData: RwLock::new(data),
-			_localWantDrop: RwLock::new(false),
+			_local: Holder::new(data.clone()),
+			_shared: Arc::new(Holder::new(data)),
 		};
 	}
 	
 	/// get readonly content
 	pub fn get(&self) -> RwLockReadGuard<'_, RawRwLock, T>
 	{
-		let otherTime = *self._sharedLastUpdate.read();
-		if ( {*self._localLastUpdate.read()} < otherTime)
-		{
-			*self._localLastUpdate.write() = otherTime;
-			*self._localData.write() = self._sharedData.write().clone();
-			*self._localWantDrop.write() = self._sharedWantDrop.write().clone();
-		}
-		return self._localData.read();
+		self._local.updateIfOlder(self._shared.as_ref());
+		return self._local.Data.read();
 	}
 	
 	/// update local and shared content via a guard
 	/// and readonly part by cloning on drop (*beware*: dropping guard is important to get shared and local updated and sync)
 	pub fn get_mut(&self) -> Guard<'_, T>
 	{
-		//let tmp = self._sharedData.write();
 		Guard{
 			context: self,
-			guarded: self._sharedData.write()
+			guarded: self._shared.Data.write()
 		}
 	}
 	
@@ -69,25 +54,23 @@ impl<T> HArcMut<T>
 	/// note : I is simply ignored (QOL)
 	pub fn update<I>(&self, mut fnUpdate: impl FnMut(&mut T) -> I)
 	{
-		let tmp = &mut self._sharedData.write();
-		let timetmp = getTime();
+		let tmp = &mut self._shared.Data.write();
 		fnUpdate(tmp);
-		*self._sharedLastUpdate.write() = timetmp;
-		*self._localLastUpdate.write() = timetmp;
-		*self._localData.write() = tmp.clone();
+		let updatetime = self._shared.updateTime();
+		*self._local.TimeUpdate.write() = updatetime;
+		*self._local.Data.write() = tmp.clone();
 	}
 	
 	/// if closure return "true" update local part by cloning the updated shared content
 	/// *beware if you update the &mut, but returning false* : shared and local data will be desync
 	pub fn updateIf(&self, mut fnUpdate: impl FnMut(&mut T) -> bool)
 	{
-		let tmp = &mut self._sharedData.write();
+		let tmp = &mut self._shared.Data.write();
 		if (fnUpdate(tmp))
 		{
-			let timetmp = getTime();
-			*self._sharedLastUpdate.write() = timetmp;
-			*self._localLastUpdate.write() = timetmp;
-			*self._localData.write() = tmp.clone();
+			let updatetime = self._shared.updateTime();
+			*self._local.TimeUpdate.write() = updatetime;
+			*self._local.Data.write() = tmp.clone();
 		}
 	}
 
@@ -95,33 +78,28 @@ impl<T> HArcMut<T>
 	/// if true, the local storage must drop this local instance
 	pub fn isWantDrop(&self) -> bool
 	{
-		let otherTime = *self._sharedLastUpdate.read();
-		if ( {*self._localLastUpdate.read()} < otherTime)
-		{
-			*self._localLastUpdate.write() = otherTime;
-			*self._localData.write() = self._sharedData.write().clone();
-			*self._localWantDrop.write() = self._sharedWantDrop.write().clone();
-		}
-		return *self._localWantDrop.read();
+		self._local.updateIfOlder(self._shared.as_ref());
+		return *self._local.WantDrop.read();
 	}
 
 	/// used to set the state of shared intance to "Want drop"
 	/// and normally be used juste before dropping the local instance
 	pub fn setDrop(&self)
 	{
-		let timetmp = getTime();
-		*self._sharedLastUpdate.write() = timetmp;
-		*self._sharedWantDrop.write() = true;
+		*self._shared.WantDrop.write() = true;
+		let time = self._shared.updateTime();
+		
+		*self._local.WantDrop.write() = true;
+		*self._local.TimeUpdate.write() = time;
 	}
 	
 	//////////////////// PRIVATE /////////////////
 	
 	fn update_internal(&self, tmp : T)
 	{
-		let timetmp = getTime();
-		*self._sharedLastUpdate.write() = timetmp;
-		*self._localLastUpdate.write() = timetmp;
-		*self._localData.write() = tmp;
+		let updatetime = self._shared.updateTime();
+		*self._local.TimeUpdate.write() = updatetime;
+		*self._local.Data.write() = tmp;
 	}
 }
 
@@ -130,18 +108,43 @@ impl<T> Clone for HArcMut<T>
 {
 	fn clone(&self) -> Self {
 		return HArcMut {
-			_sharedData: self._sharedData.clone(),
-			_sharedLastUpdate: self._sharedLastUpdate.clone(),
-			_sharedWantDrop: self._sharedWantDrop.clone(),
-			_localLastUpdate: RwLock::new(*self._localLastUpdate.read()),
-			_localData: RwLock::new(self._localData.read().clone()),
-			_localWantDrop: RwLock::new(self._localWantDrop.read().clone()),
+			_shared: self._shared.clone(),
+			_local: self._local.clone(),
 		};
 	}
 }
 
-/// this need to be faster (if possible) and monotonic, for futur update
-fn getTime() -> u128
+
+/* Hope, one day ?
+impl<T> HArcMut<T>
+	where T: Clone + Any
 {
-	return SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+	pub fn get_as<I: 'static>(&self) -> Option<RwLockReadGuard<'_,RawRwLock,I>>
+	{
+		self._local.updateIfOlder(self._shared.as_ref());
+		let tmp = &self._local.Data as &dyn Any;
+		return match tmp.downcast_ref::<RwLock<I>>() {
+			None => None,
+			Some(x) => {
+				Some(x.read())
+			}
+		};
+	}
+	
+	pub fn get_mut_as<I>(&self) -> Option<Guard<'_, RwLockWriteGuard<'static,I>>>
+		where I: 'static + Clone,
+		RwLockWriteGuard<'static,I> : Clone
+	{
+		let tmp = &self._shared.Data as &dyn Any;
+		return match tmp.downcast_ref::<RwLock<I>>() {
+			None => None,
+			Some(x) => {
+				Guard::<I>{
+					context: self,
+					guarded: x.write()
+				}
+			}
+		};
+	}
 }
+*/
