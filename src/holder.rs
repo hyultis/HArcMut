@@ -6,7 +6,6 @@ pub struct Holder<T>
 {
 	pub TimeUpdate: RwLock<u128>,
 	pub Data: RwLock<T>,
-	pub WantDrop: RwLock<bool>
 }
 
 impl<T> Holder<T>
@@ -17,7 +16,6 @@ impl<T> Holder<T>
 		return Holder {
 			TimeUpdate: RwLock::new(Holder::<T>::getTime()),
 			Data: RwLock::new(data),
-			WantDrop: RwLock::new(false),
 		};
 	}
 	
@@ -28,12 +26,15 @@ impl<T> Holder<T>
 	
 	pub fn updateIfOlder(&self, shared: &Self)
 	{
-		let otherTime = *shared.TimeUpdate.read();
+		let otherTime = match shared.TimeUpdate.try_read() {
+			None => return,
+			Some(otherTime) => *otherTime
+		};
+		
 		if ( self.isOlderThan(otherTime))
 		{
 			*self.TimeUpdate.write() = otherTime;
 			*self.Data.write() = shared.Data.read().clone();
-			*self.WantDrop.write() = shared.WantDrop.read().clone();
 		}
 	}
 	
@@ -57,7 +58,6 @@ impl<T> Clone for Holder<T>
 		return Holder {
 			TimeUpdate: RwLock::new(*self.TimeUpdate.read()),
 			Data: RwLock::new(self.Data.read().clone()),
-			WantDrop: RwLock::new(self.WantDrop.read().clone()),
 		};
 	}
 }
