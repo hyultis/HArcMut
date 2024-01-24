@@ -19,7 +19,7 @@ fn update() {
 		// });
 		// ```
 	}
-	assert_eq!(*ham.get(), 43);
+	assert_eq!(**ham.get(), 43);
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn threadUpdate() {
 		x.join().expect("Thread join impossible");
 	}
 	
-	assert_eq!(*ham.get(), 72);
+	assert_eq!(**ham.get(), 72);
 }
 
 #[test]

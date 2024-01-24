@@ -5,10 +5,9 @@ mod guard;
 mod holder;
 
 use std::sync::Arc;
-use parking_lot::{RawRwLock, RwLock};
-use parking_lot::lock_api::RwLockReadGuard;
-use crate::guard::Guard;
-use crate::holder::Holder;
+use arc_swap::{ArcSwap, Guard};
+use crate::guard::GuardMut;
+use crate::holder::{HolderLocal, HolderShared};
 
 /// HArcMut : Hyultis Arc Mut
 /// store a content inside a Arc<RwLock<>> to be a mutable between thread
@@ -16,9 +15,9 @@ use crate::holder::Holder;
 pub struct HArcMut<T>
 	where T: Clone
 {
-	_shared: Arc<Holder<T>>,
-	_local: Holder<T>,
-	_wantDrop: Arc<RwLock<bool>>
+	_shared: Arc<HolderShared<T>>,
+	_local: HolderLocal<T>,
+	_wantDrop: Arc<ArcSwap<bool>>
 }
 
 impl<T> HArcMut<T>
@@ -28,26 +27,26 @@ impl<T> HArcMut<T>
 	{
 		return HArcMut
 		{
-			_local: Holder::new(data.clone()),
-			_shared: Arc::new(Holder::new(data)),
-			_wantDrop: Arc::new(RwLock::new(false)),
+			_local: HolderLocal::new(data.clone()),
+			_shared: Arc::new(HolderShared::new(data)),
+			_wantDrop: Arc::new(ArcSwap::new(Arc::new(false))),
 		};
 	}
 	
 	/// get readonly content
-	pub fn get(&self) -> RwLockReadGuard<'_, RawRwLock, T>
+	pub fn get(&self) -> Guard<Arc<T>>
 	{
-		self._local.updateIfOlder(&self._shared);
-		return self._local.Data.read();
+		self._local.updateIfOlder(&*self._shared);
+		self._local.Data.load()
 	}
 	
 	/// update local and shared content via a guard
 	/// and readonly part by cloning on drop (*beware*: dropping guard is important to get shared and local updated and sync)
-	pub fn get_mut(&self) -> Guard<T>
+	pub fn get_mut(&self) -> GuardMut<T>
 	{
-		Guard{
+		GuardMut {
 			context: self,
-			guarded: self._shared.Data.write()
+			guarded: self._shared.Data.lock(),
 		}
 	}
 	
@@ -56,56 +55,54 @@ impl<T> HArcMut<T>
 	/// note : I is simply ignored (QOL)
 	pub fn update<I>(&self, mut fnUpdate: impl FnMut(&mut T) -> I)
 	{
-		let cloned = {
-			let tmp = &mut self._shared.Data.write();
-			fnUpdate(tmp);
-			tmp.clone()
+		let (cloned,time) = {
+			let mut tmp = self._shared.Data.lock();
+			fnUpdate(&mut tmp);
+			(tmp.clone(),self._shared.updateTime())
 		};
 		
-		*self._local.TimeUpdate.write() = self._shared.updateTime();
-		*self._local.Data.write() = cloned;
+		self._local.TimeUpdate.swap(Arc::new(time));
+		self._local.Data.swap(Arc::new(cloned));
 	}
 	
 	/// if closure return "true" update local part by cloning the updated shared content
 	/// *beware if you update the &mut, but returning false* : shared and local data will be desync
 	pub fn updateIf(&self, mut fnUpdate: impl FnMut(&mut T) -> bool)
 	{
-		let cloned = {
-			let tmp = &mut self._shared.Data.write();
-			if(!fnUpdate(tmp))
+		let (cloned,time) = {
+			let mut tmp = self._shared.Data.lock();
+			if(!fnUpdate(&mut tmp))
 			{
 				return;
 			}
-			tmp.clone()
+			(tmp.clone(),self._shared.updateTime())
 		};
 		
-		*self._local.TimeUpdate.write() = self._shared.updateTime();
-		*self._local.Data.write() = cloned;
+		self._local.TimeUpdate.swap(Arc::new(time));
+		self._local.Data.swap(Arc::new(cloned));
 	}
 
 	/// must be regulary manually checked
 	/// if true, the local storage must drop this local instance
 	pub fn isWantDrop(&self) -> bool
 	{
-		return match self._wantDrop.try_read() {
-			None => false,
-			Some(val) => *val
-		};
+		return **self._wantDrop.load();
 	}
 
 	/// used to set the state of shared intance to "Want drop"
 	/// and normally be used juste before dropping the local instance
 	pub fn setDrop(&self)
 	{
-		*self._wantDrop.write() = true;
+		self._wantDrop.swap(Arc::new(true));
 	}
 	
 	//////////////////// PRIVATE /////////////////
 	
-	fn update_internal(&self, tmp : T)
+	fn update_internal(&self, cloned : T)
 	{
-		*self._local.TimeUpdate.write() = self._shared.updateTime();
-		*self._local.Data.write() = tmp;
+		let time = self._shared.updateTime();
+		self._local.TimeUpdate.swap(Arc::new(time));
+		self._local.Data.swap(Arc::new(cloned));
 	}
 }
 

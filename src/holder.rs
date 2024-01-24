@@ -1,63 +1,80 @@
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use parking_lot::RwLock;
+use arc_swap::ArcSwap;
+use parking_lot::Mutex;
 
-pub struct Holder<T>
+pub struct HolderLocal<T>
 	where T: Clone
 {
-	pub TimeUpdate: RwLock<u128>,
-	pub Data: RwLock<T>,
+	pub TimeUpdate: ArcSwap<u128>,
+	pub Data: ArcSwap<T>,
 }
 
-impl<T> Holder<T>
+pub struct HolderShared<T>
+	where T: Clone
+{
+	pub TimeUpdate: ArcSwap<u128>,
+	pub Data: Mutex<T>,
+}
+
+impl<T> HolderShared<T>
 	where T: Clone
 {
 	pub fn new(data: T) -> Self
 	{
-		return Holder {
-			TimeUpdate: RwLock::new(Holder::<T>::getTime()),
-			Data: RwLock::new(data),
+		return Self {
+			TimeUpdate: ArcSwap::new(Arc::new(getTime())),
+			Data: Mutex::new(data),
+		};
+	}
+	
+	pub fn updateTime(&self) -> u128
+	{
+		let tmp = getTime();
+		self.TimeUpdate.swap(Arc::new(tmp));
+		return tmp;
+	}
+}
+
+impl<T> HolderLocal<T>
+	where T: Clone
+{
+	pub fn new(data: T) -> Self
+	{
+		return Self {
+			TimeUpdate: ArcSwap::new(Arc::new(getTime())),
+			Data: ArcSwap::new(Arc::new(data)),
 		};
 	}
 	
 	pub fn isOlderThan(&self, other: u128) -> bool
 	{
-		*self.TimeUpdate.read() < other
+		**self.TimeUpdate.load() < other
 	}
 	
-	pub fn updateIfOlder(&self, shared: &Self)
+	pub fn updateIfOlder(&self, shared: &HolderShared<T>)
 	{
-		let otherTime = match shared.TimeUpdate.try_read() {
-			None => return,
-			Some(otherTime) => *otherTime
-		};
-		
-		if ( self.isOlderThan(otherTime))
+		let time = shared.TimeUpdate.load();
+		if ( self.isOlderThan(**time))
 		{
-			*self.TimeUpdate.write() = otherTime;
-			*self.Data.write() = shared.Data.read().clone();
+			self.TimeUpdate.swap(time.clone());
+			self.Data.swap(Arc::new(shared.Data.lock().clone()));
 		}
-	}
-	
-	pub fn updateTime(&self) -> u128
-	{
-		let tmp = Holder::<T>::getTime();
-		*self.TimeUpdate.write() = tmp;
-		return tmp;
-	}
-	
-	pub fn getTime() -> u128
-	{
-		SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
 	}
 }
 
-impl<T> Clone for Holder<T>
+impl<T> Clone for HolderLocal<T>
 	where T: Clone
 {
 	fn clone(&self) -> Self {
-		return Holder {
-			TimeUpdate: RwLock::new(*self.TimeUpdate.read()),
-			Data: RwLock::new(self.Data.read().clone()),
+		return Self {
+			TimeUpdate: ArcSwap::new(self.TimeUpdate.load().clone()),
+			Data: ArcSwap::new(self.Data.load().clone()),
 		};
 	}
+}
+
+fn getTime() -> u128
+{
+	SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
 }

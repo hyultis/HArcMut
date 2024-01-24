@@ -1,34 +1,34 @@
 use std::ops::{Deref, DerefMut};
-use parking_lot::RwLockWriteGuard;
+use parking_lot::MutexGuard;
 use crate::HArcMut;
 
 // RAII guard
-pub struct Guard<'a,T>
+pub struct GuardMut<'a,T>
 	where T: Clone
 {
 	pub context: &'a HArcMut<T>,
-	pub guarded: RwLockWriteGuard<'a,T>
+	pub guarded: MutexGuard<'a,T>
 }
 
-impl<'a,T> Deref for Guard<'a,T>
+impl<'a,T> Deref for GuardMut<'a,T>
 	where T: Clone
 {
 	type Target = T;
 	
 	fn deref(&self) -> &Self::Target {
-		self.guarded.deref()
+		&self.guarded
 	}
 }
 
-impl<T> DerefMut for Guard<'_,T>
+impl<T> DerefMut for GuardMut<'_,T>
 	where T: Clone
 {
 	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.guarded.deref_mut()
+		&mut self.guarded
 	}
 }
 
-impl<T> Drop for Guard<'_,T>
+impl<T> Drop for GuardMut<'_,T>
 	where T: Clone
 {
 	fn drop(&mut self) {
