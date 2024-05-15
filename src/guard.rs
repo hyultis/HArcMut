@@ -3,14 +3,14 @@ use parking_lot::MutexGuard;
 use crate::HArcMut;
 
 // RAII guard
-pub struct GuardMut<'a,T>
+pub struct GuardMut<'a,T: 'a>
 	where T: Clone
 {
 	pub context: &'a HArcMut<T>,
 	pub guarded: MutexGuard<'a,T>
 }
 
-impl<'a,T> Deref for GuardMut<'a,T>
+impl<T> Deref for GuardMut<'_,T>
 	where T: Clone
 {
 	type Target = T;

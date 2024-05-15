@@ -1,6 +1,6 @@
 [package]
 name = "HArcMut"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -12,5 +12,5 @@ description = "mutable arc"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-parking_lot = "0.12.1"
-arc-swap = "1.6.0"
+parking_lot = "0.12.2"
+arc-swap = "1.7.1"

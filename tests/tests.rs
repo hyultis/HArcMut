@@ -4,14 +4,15 @@ use std::thread;
 use HArcMut::HArcMut;
 
 #[test]
-fn update() {
+fn update()
+{
 	let testdefault = 42;
 	let ham = HArcMut::new(testdefault);
 	{
-		// this is a RAII guard, the drop is needed for repercuting value into readonly part
+		// this is a RAII guard, the drop is needed for reverberate value (done with a clone) into readonly part
 		let mut value = ham.get_mut();
 		*value = 43;
-		
+
 		// if you want to not deal with the drop, can use update() instead :
 		// ```
 		// ham.update(|value|{
@@ -23,7 +24,8 @@ fn update() {
 }
 
 #[test]
-fn threadUpdate() {
+fn threadUpdate()
+{
 	let testdefault = 42;
 	let ham = HArcMut::new(testdefault);
 	let mut threadJoin = Vec::new();
@@ -35,37 +37,39 @@ fn threadUpdate() {
 			*value += 1;
 		}));
 	}
-	
+
 	for _ in 0..10
 	{
 		let hamThread = ham.clone();
 		threadJoin.push(thread::spawn(move || {
-			hamThread.update(|value|{
+			hamThread.update(|value| {
 				*value += 1;
 			});
 		}));
 	}
-	
+
 	for _ in 0..10
 	{
 		let hamThread = ham.clone();
 		threadJoin.push(thread::spawn(move || {
-			hamThread.updateIf(|value|{
+			hamThread.updateIf(|value| {
 				*value += 1;
 				true // put in false here lead to desync, be carefull
 			});
 		}));
 	}
-	
-	for x in threadJoin {
+
+	for x in threadJoin
+	{
 		x.join().expect("Thread join impossible");
 	}
-	
+
 	assert_eq!(**ham.get(), 72);
 }
 
 #[test]
-fn threadDrop() {
+fn threadDrop()
+{
 	let testdefault = 42;
 	let ham = HArcMut::new(testdefault);
 	let mut storage = Vec::new();
@@ -73,11 +77,11 @@ fn threadDrop() {
 
 	thread::spawn(move || {
 		ham.setDrop();
-	}).join().expect("Thread join impossible");
+	})
+	.join()
+	.expect("Thread join impossible");
 
-
-	storage.retain_mut(|item|!item.isWantDrop());
+	storage.retain_mut(|item| !item.isWantDrop());
 
 	assert_eq!(storage.len(), 0);
-
 }

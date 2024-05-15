@@ -7,7 +7,7 @@ I use a shared RwLock, that permit a writable ***Data*** between thread and a lo
 
 ***Data*** need to have the "Clone" trait
 
-use [Parking_lot](https://crates.io/crates/parking_lot) for RwLock stuff
+use [Parking_lot](https://crates.io/crates/parking_lot) and [arc-swap](https://crates.io/crates/arc-swap) for sync stuff
 
 Beware : for a safe memory clear, you need to drop each clone, everywhere.
 To help with that, you need to check the return of "isWantDrop()", and removing the local instance from your storage (and doing that for each system that hold a clone)
